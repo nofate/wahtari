@@ -52,9 +52,13 @@ due to possible service failure.
 
 # Further improvements
 
-These ideas seemed to be out of scope of the coding assessment:
+These ideas seemed to be out of the scope of the coding assessment:
 
 - Undertow web server is quite handy for prototyping, but it can be outperformed by other frameworks. Benchmarking
   on a real-world workload is required.
 - Possible data loss can be minimized by something like a write-ahead log or even a tiny disk merge-tree implementation 
   collecting counters on a SSD.
+
+
+-----
+_Wahtāri [Old High German] — Watchman_
