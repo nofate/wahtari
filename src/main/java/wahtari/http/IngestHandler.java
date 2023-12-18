@@ -13,19 +13,23 @@ import wahtari.data.InMemoryDao;
 import wahtari.data.StatsService;
 
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 
 @Component
 public class IngestHandler implements HttpHandler {
 
     private final DslJson<Object> dslJson;
-    private StatsService statsService;
-    private InMemoryDao dao;
+    private final StatsService statsService;
+    private final InMemoryDao dao;
+
+    private static final int IPV4_MAX_OCTET_VALUE = 255;
+    private static final Pattern IP_PATTERN = Pattern.compile("^(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})$");
 
     public IngestHandler(@Autowired StatsService statsService, @Autowired InMemoryDao dao) {
         this.statsService = statsService;
         this.dao = dao;
-
         dslJson = new DslJson<>(Settings.withRuntime().includeServiceLoader());
     }
 
@@ -71,8 +75,13 @@ public class IngestHandler implements HttpHandler {
         }
 
         // validate IP
-        int ip = ipV4StringToInt(msg.getRemoteIp());
-        if (dao.addressBlacklisted(ip)) {
+        Optional<Integer> ip = ipV4StringToInt(msg.getRemoteIp());
+        if (ip.isEmpty()) {
+            exchange.setStatusCode(StatusCodes.BAD_REQUEST);
+            exchange.getResponseSender().send("IP address invalid");
+            statsService.markInvalid(msg.getTimestamp(), msg.getCustomerId());
+            return;
+        } else if (dao.addressBlacklisted(ip.get())) {
             exchange.setStatusCode(StatusCodes.BAD_REQUEST);
             exchange.getResponseSender().send("IP address blacklisted");
             statsService.markInvalid(msg.getTimestamp(), msg.getCustomerId());
@@ -104,13 +113,29 @@ public class IngestHandler implements HttpHandler {
         }
     }
 
-    private static int ipV4StringToInt(String ipAddress) {
-        String[] ipSegments = ipAddress.split("\\.");
+    public static Optional<Integer> ipV4StringToInt(final String inet4Address) {
         int result = 0;
+        Matcher matcher = IP_PATTERN.matcher(inet4Address);
+        if (matcher.matches()) {
+            for (int i = 0; i < matcher.groupCount(); i++) {
+                String group = matcher.group(i + 1);
+                if (group == null || group.isEmpty()) {
+                    return Optional.empty();
+                }
+                int ipSegment = 0;
+                try {
+                    ipSegment = Integer.parseInt(group);
+                } catch (final NumberFormatException e) {
+                    return Optional.empty();
+                }
+                if (ipSegment > IPV4_MAX_OCTET_VALUE) {
+                    return Optional.empty();
+                }
 
-        for (int i = 0; i < 4; i++) {
-            result |= (Integer.parseInt(ipSegments[i]) << ((3 - i) * 8));
+                result |= (ipSegment << ((3 - i) * 8));
+            }
+            return Optional.of(result);
         }
-        return result;
+        return Optional.empty();
     }
 }
